@@ -96,20 +96,6 @@ describe("createMcpServer scope mismatch warning", () => {
     errorSpy.mockRestore();
   });
 
-  it("does not warn when AUTH_TOKEN is set", async () => {
-    await fs.writeFile(
-      authInfoPath(),
-      JSON.stringify({ authenticated: true, grantedScopes: ["User.Read"] })
-    );
-    vi.stubEnv("AUTH_TOKEN", "e30.eyJhdWQiOiJodHRwczovL2dyYXBoLm1pY3Jvc29mdC5jb20ifQ.sig");
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-
-    await serverModule.createMcpServer(false);
-
-    expect(errorSpy).not.toHaveBeenCalled();
-    errorSpy.mockRestore();
-  });
-
   it("treats a missing auth file as no warning", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 

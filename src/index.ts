@@ -14,16 +14,22 @@ import { AUTH_INFO_PATH, createMcpServer } from "./server.js";
 import { resolveScopes } from "./services/graph.js";
 
 // Microsoft Graph tenant app registration. Both env vars are required —
-// we no longer fall back to a hardcoded public client app. See FORK_NOTES.md.
-// TEAMS_MCP_TENANT_ID still has a "common" fallback for backward compatibility
-// with personal-account flows; that is being tightened in a later PR (#5).
+// we no longer fall back to a hardcoded public client app (customization
+// #4) and no longer fall back to the `common` tenant (customization #5).
+// See FORK_NOTES.md for rationale.
 const CLIENT_ID = process.env.TEAMS_MCP_CLIENT_ID;
 if (!CLIENT_ID) {
   throw new Error(
     "TEAMS_MCP_CLIENT_ID is required. Register your own app in Microsoft Entra and set the client ID before starting the server.",
   );
 }
-const AUTHORITY = `https://login.microsoftonline.com/${process.env.TEAMS_MCP_TENANT_ID || "common"}`;
+const TENANT_ID = process.env.TEAMS_MCP_TENANT_ID;
+if (!TENANT_ID) {
+  throw new Error(
+    "TEAMS_MCP_TENANT_ID is required. Set the Microsoft Entra tenant ID (GUID or verified domain) you registered the app in.",
+  );
+}
+const AUTHORITY = `https://login.microsoftonline.com/${TENANT_ID}`;
 
 /** Check whether CLI args contain --read-only. */
 function hasReadOnlyFlag(args: string[]): boolean {
@@ -193,7 +199,10 @@ async function main() {
   const args = process.argv.slice(2);
   const command = args.find((arg) => arg !== "--read-only");
 
-  const readOnly = hasReadOnlyFlag(args) || process.env.TEAMS_MCP_READ_ONLY === "true";
+  // Read-only is the safe default (customization #2). Set
+  // TEAMS_MCP_READ_ONLY=false to opt in to write access, or pass
+  // --read-only explicitly to force read-only regardless of env.
+  const readOnly = hasReadOnlyFlag(args) || process.env.TEAMS_MCP_READ_ONLY !== "false";
 
   // CLI commands
   switch (command) {
@@ -226,12 +235,11 @@ async function main() {
         "  npx @floriscornel/teams-mcp@latest logout                    # Clear authentication"
       );
       console.log(
-        "  npx @floriscornel/teams-mcp@latest                           # Start MCP server (default)"
+        "  npx @floriscornel/teams-mcp@latest                           # Start MCP server (default: read-only)"
       );
       console.log("");
       console.log("Environment variables:");
-      console.log("  TEAMS_MCP_READ_ONLY=true  # Start MCP server in read-only mode");
-      console.log("  AUTH_TOKEN=<jwt>          # Use a pre-existing access token");
+      console.log("  TEAMS_MCP_READ_ONLY=false  # Start MCP server in full mode (default: read-only)");
       return;
     case undefined:
       // No command = start MCP server

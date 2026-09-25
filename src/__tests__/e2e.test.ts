@@ -1,17 +1,41 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMcpServer } from "../server.js";
 
-// JWT accepted by GraphService.validateToken (aud must target Microsoft Graph).
-// MSW intercepts all Graph HTTP traffic, so the token never needs to be real.
-const AUTH_TOKEN = (() => {
-  const payload = Buffer.from(
-    JSON.stringify({ aud: "https://graph.microsoft.com", sub: "e2e-test" })
-  ).toString("base64");
-  return `e30.${payload}.not-a-real-signature`;
-})();
+// AUTH_TOKEN direct-injection bypass was removed (customization #3).
+// MSAL is mocked here so the Graph client initializes with a fake access
+// token; MSW (see test-utils/setup.ts) intercepts all Graph HTTP traffic,
+// so the token never needs to be real.
+//
+// The MSAL factory is hoisted so it survives `vi.resetAllMocks()` in the
+// global afterEach. Each `beforeEach` re-installs the implementation on
+// the same `PublicClientApplication` constructor mock so the singleton's
+// cached MSAL instance keeps a working `acquireTokenSilent`.
+const msalMockState = vi.hoisted(() => ({
+  ctor: vi.fn(),
+  acquireTokenSilent: vi.fn(),
+}));
+
+vi.mock("@azure/msal-node", () => ({
+  PublicClientApplication: msalMockState.ctor,
+}));
+
+function installMsalMock(): void {
+  msalMockState.acquireTokenSilent.mockResolvedValue({
+    accessToken: "e2e-fake-access-token",
+    expiresOn: new Date(Date.now() + 3_600_000),
+  });
+  msalMockState.ctor.mockImplementation(function () {
+    return {
+      getTokenCache: vi.fn().mockReturnValue({
+        getAllAccounts: vi.fn().mockResolvedValue([{ username: "test@example.com" }]),
+      }),
+      acquireTokenSilent: msalMockState.acquireTokenSilent,
+    };
+  });
+}
 
 /** All tool names registered in full mode. */
 const ALL_TOOL_NAMES = [
@@ -94,8 +118,18 @@ describe("E2E: MCP server over InMemoryTransport (full mode)", () => {
   let client: Client;
 
   beforeAll(async () => {
-    process.env.AUTH_TOKEN = AUTH_TOKEN;
     ({ client } = await connectClient(false));
+  });
+
+  // The global afterEach calls vi.resetAllMocks(), which strips the
+  // implementation from the PublicClientApplication mock. The singleton
+  // still holds the previously-cached MSAL instance, but its
+  // acquireTokenSilent is now a stripped vi.fn() returning undefined.
+  // Re-installing the mock before each test ensures subsequent
+  // Graph client initializations (if any test triggers re-init via
+  // GraphService state resets) get a working MSAL.
+  beforeEach(() => {
+    installMsalMock();
   });
 
   describe("protocol-level tool discovery", () => {
@@ -221,8 +255,11 @@ describe("E2E: MCP server over InMemoryTransport (read-only mode)", () => {
   let client: Client;
 
   beforeAll(async () => {
-    process.env.AUTH_TOKEN = AUTH_TOKEN;
     ({ client } = await connectClient(true));
+  });
+
+  beforeEach(() => {
+    installMsalMock();
   });
 
   it("only registers read-only tools", async () => {

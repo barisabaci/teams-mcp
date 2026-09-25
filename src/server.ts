@@ -37,7 +37,7 @@ export async function createMcpServer(readOnly: boolean): Promise<McpServer> {
   graphService.readOnlyMode = readOnly;
 
   // Detect scope mismatch: warn when switching from read-only → full mode
-  if (!readOnly && !process.env.AUTH_TOKEN) {
+  if (!readOnly) {
     const authInfo = await readAuthInfo();
     if (authInfo) {
       const grantedScopes = authInfo.grantedScopes as string[] | undefined;
