@@ -44,7 +44,15 @@ async function authenticate(readOnly: boolean) {
 
     const msalConfig: Configuration = {
       auth: {
-        clientId: CLIENT_ID,
+        // The module-level guard throws when TEAMS_MCP_CLIENT_ID is missing,
+        // but TypeScript doesn't carry that narrowing across the function
+        // boundary, so narrow explicitly at the use site.
+        clientId:
+          typeof CLIENT_ID === "string"
+            ? CLIENT_ID
+            : (() => {
+                throw new Error("TEAMS_MCP_CLIENT_ID is required");
+              })(),
         authority: AUTHORITY,
       },
       cache: {
