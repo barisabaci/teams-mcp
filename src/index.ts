@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
 import { promises as fs } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import {
   type AuthenticationResult,
   type Configuration,
@@ -12,6 +10,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { cachePlugin } from "./msal-cache.js";
 import { AUTH_INFO_PATH, createMcpServer } from "./server.js";
 import { resolveScopes } from "./services/graph.js";
+import { writeSecretFile } from "./utils/file-mode.js";
 
 // Microsoft Graph tenant app registration. Both env vars are required —
 // we no longer fall back to a hardcoded public client app (customization
@@ -20,13 +19,13 @@ import { resolveScopes } from "./services/graph.js";
 const CLIENT_ID = process.env.TEAMS_MCP_CLIENT_ID;
 if (!CLIENT_ID) {
   throw new Error(
-    "TEAMS_MCP_CLIENT_ID is required. Register your own app in Microsoft Entra and set the client ID before starting the server.",
+    "TEAMS_MCP_CLIENT_ID is required. Register your own app in Microsoft Entra and set the client ID before starting the server."
   );
 }
 const TENANT_ID = process.env.TEAMS_MCP_TENANT_ID;
 if (!TENANT_ID) {
   throw new Error(
-    "TEAMS_MCP_TENANT_ID is required. Set the Microsoft Entra tenant ID (GUID or verified domain) you registered the app in.",
+    "TEAMS_MCP_TENANT_ID is required. Set the Microsoft Entra tenant ID (GUID or verified domain) you registered the app in."
   );
 }
 const AUTHORITY = `https://login.microsoftonline.com/${TENANT_ID}`;
@@ -50,7 +49,7 @@ async function authenticate(readOnly: boolean) {
 
     const msalConfig: Configuration = {
       auth: {
-// The module-level guards throw when TEAMS_MCP_CLIENT_ID or
+        // The module-level guards throw when TEAMS_MCP_CLIENT_ID or
         // TEAMS_MCP_TENANT_ID is missing, but TypeScript doesn't carry
         // that narrowing across the function boundary, so narrow
         // explicitly at the use site.
@@ -90,7 +89,7 @@ async function authenticate(readOnly: boolean) {
         grantedScopes: result.scopes,
       };
 
-      await fs.writeFile(AUTH_INFO_PATH, JSON.stringify(authInfo, null, 2));
+      await writeSecretFile(AUTH_INFO_PATH, JSON.stringify(authInfo, null, 2));
 
       console.log("\n✅ Authentication successful!");
       console.log(`👤 Signed in as: ${result.account?.username || "Unknown"}`);
@@ -167,19 +166,14 @@ async function checkAuth() {
 }
 
 async function logout() {
-  const CACHE_PATH = join(homedir(), ".teams-mcp-token-cache.json");
-
   try {
     await fs.unlink(AUTH_INFO_PATH);
   } catch (_error) {
     // Ignore if file doesn't exist
   }
 
-  try {
-    await fs.unlink(CACHE_PATH);
-  } catch (_error) {
-    // Ignore if file doesn't exist
-  }
+  // Customization #6 removed the plaintext home-dir token cache file;
+  // nothing on disk to delete anymore.
 
   console.log("✅ Successfully logged out");
   console.log("🔄 Run 'npx @floriscornel/teams-mcp@latest authenticate' to re-authenticate");
@@ -240,7 +234,9 @@ async function main() {
       );
       console.log("");
       console.log("Environment variables:");
-      console.log("  TEAMS_MCP_READ_ONLY=false  # Start MCP server in full mode (default: read-only)");
+      console.log(
+        "  TEAMS_MCP_READ_ONLY=false  # Start MCP server in full mode (default: read-only)"
+      );
       return;
     case undefined:
       // No command = start MCP server

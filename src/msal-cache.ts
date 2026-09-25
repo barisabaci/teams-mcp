@@ -1,37 +1,42 @@
-import { promises as fs } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { ICachePlugin, TokenCacheContext } from "@azure/msal-node";
 
-const CACHE_PATH = join(homedir(), ".teams-mcp-token-cache.json");
-
 /**
- * Custom file-based cache plugin for MSAL Node
- * Stores tokens (including refresh tokens) in a JSON file
+ * In-memory MSAL token cache plugin.
+ *
+ * Customization #6: the previous file-based implementation persisted the
+ * serialized token cache (including refresh tokens) to
+ * `~/.teams-mcp-token-cache.json` in plaintext. That file is gone — the
+ * cache lives only in this module's memory and is lost when the process
+ * exits. Secrets reach the process through `settings_env` (SessionHub MCP)
+ * as child env vars; they are never written to disk by this code.
+ *
+ * The plugin is still required by MSAL's PublicClientApplication, so we
+ * keep the ICachePlugin shape and serve reads/writes from a single
+ * module-scoped string.
  */
+const memoryCache: { data: string | null } = { data: null };
+
 export const cachePlugin: ICachePlugin = {
   async beforeCacheAccess(cacheContext: TokenCacheContext): Promise<void> {
-    try {
-      const data = await fs.readFile(CACHE_PATH, "utf8");
-      cacheContext.tokenCache.deserialize(data);
-    } catch (error) {
-      // File doesn't exist or is invalid - start with empty cache
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        console.error("Warning: Could not read token cache:", error);
+    if (memoryCache.data !== null) {
+      try {
+        cacheContext.tokenCache.deserialize(memoryCache.data);
+      } catch {
+        // Treat malformed cache as empty rather than crashing the auth
+        // flow; the operator will be prompted to re-authenticate.
+        memoryCache.data = null;
       }
     }
   },
 
   async afterCacheAccess(cacheContext: TokenCacheContext): Promise<void> {
     if (cacheContext.cacheHasChanged) {
-      try {
-        const data = cacheContext.tokenCache.serialize();
-        await fs.writeFile(CACHE_PATH, data, "utf8");
-      } catch (error) {
-        console.error("Warning: Could not write token cache:", error);
-      }
+      memoryCache.data = cacheContext.tokenCache.serialize();
     }
   },
 };
 
-export { CACHE_PATH };
+/** Test-only: reset the in-memory cache. Not part of the public API. */
+export function __resetCacheForTests(): void {
+  memoryCache.data = null;
+}
