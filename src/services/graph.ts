@@ -2,9 +2,15 @@ import { type AccountInfo, PublicClientApplication } from "@azure/msal-node";
 import { Client } from "@microsoft/microsoft-graph-client";
 import { cachePlugin } from "../msal-cache.js";
 
-// Microsoft Graph CLI app ID (default public client)
-// Override with your own app registration via TEAMS_MCP_CLIENT_ID / TEAMS_MCP_TENANT_ID
-const CLIENT_ID = process.env.TEAMS_MCP_CLIENT_ID || "14d82eec-204b-4c2f-b7e8-296a70dab67e";
+// Microsoft Graph tenant app registration. TEAMS_MCP_CLIENT_ID is required —
+// the previous hardcoded fallback to Microsoft Graph CLI's public client is
+// removed in this fork (customization #4). See FORK_NOTES.md for rationale.
+const CLIENT_ID = process.env.TEAMS_MCP_CLIENT_ID;
+if (!CLIENT_ID) {
+  throw new Error(
+    "TEAMS_MCP_CLIENT_ID is required. Register your own app in Microsoft Entra and set the client ID before starting the server.",
+  );
+}
 const AUTHORITY = `https://login.microsoftonline.com/${process.env.TEAMS_MCP_TENANT_ID || "common"}`;
 
 /** Scopes sufficient for read-only operations (no message sending, no file uploads). */
@@ -101,7 +107,15 @@ export class GraphService {
       // Priority 2: MSAL with cached refresh token for automatic token renewal
       this.msalApp = new PublicClientApplication({
         auth: {
-          clientId: CLIENT_ID,
+          // The module-level guard throws when TEAMS_MCP_CLIENT_ID is missing,
+          // but TypeScript doesn't carry that narrowing across the function
+          // boundary, so narrow explicitly at the use site.
+          clientId:
+            typeof CLIENT_ID === "string"
+              ? CLIENT_ID
+              : (() => {
+                  throw new Error("TEAMS_MCP_CLIENT_ID is required");
+                })(),
           authority: AUTHORITY,
         },
         cache: {

@@ -53,6 +53,9 @@ Thumbs.db
 tmp/
 temp/
 
+# Vitest JUnit output (customization #11: not committed in this fork)
+test-results.xml
+
 # Optional npm cache directory
 .npm
 
