@@ -4,7 +4,12 @@ import { join } from "node:path";
 import type { TokenCacheContext } from "@azure/msal-node";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { __resetCacheForTests, cachePlugin } from "../msal-cache.js";
+import {
+  __resetCacheForTests,
+  __seedFromEnvForTests,
+  cachePlugin,
+  exportCache,
+} from "../msal-cache.js";
 
 // Real-fs probe directory for the "no fs touch" assertion. We never write
 // here from the cache plugin — the directory is empty before and after.
@@ -156,5 +161,69 @@ describe("MSAL Cache Plugin (in-memory, customization #6)", () => {
 
     stdoutWrite.mockRestore();
     stderrWrite.mockRestore();
+  });
+});
+
+// Customization #6 fix — two-process flow: the auth process emits the
+// serialized cache, the fresh server process seeds itself from
+// process.env.TEAMS_MCP_MSAL_CACHE and serves it via beforeCacheAccess.
+// In PR #5 (commit ac59410) this was RED because msal-cache.ts did not
+// read process.env. The fix adds env-var seeding at module load and on
+// every beforeCacheAccess.
+describe("MSAL Cache Plugin — two-process flow (customization #6 fix)", () => {
+  afterEach(() => {
+    delete process.env.TEAMS_MCP_MSAL_CACHE;
+  });
+
+  it("auth process → server process: exportCache → env → fresh boot → deserialize", async () => {
+    // Step 1 — auth process: drive afterCacheAccess with a serialized
+    // cache blob. exportCache() returns the value the auth CLI writes
+    // to the runtime-dir handoff file.
+    const serialized = '{"refresh_token":"rt.SECRET-two-proc-flow"}';
+    const authCtx = fakeContext(serialized);
+    await cachePlugin.afterCacheAccess(authCtx);
+    const exported = exportCache();
+    expect(exported).toBe(serialized);
+
+    // Step 2 — operator lifts the file into their encrypted settings
+    // store, and `settings_env` injects it into the next process.
+    process.env.TEAMS_MCP_MSAL_CACHE = exported ?? "";
+
+    // Step 3 — fresh server process: in-memory state is empty (process
+    // boot), but the env var carries the serialized cache. __seedFromEnv
+    // is what the plugin itself does at module load + before each read.
+    __resetCacheForTests();
+    __seedFromEnvForTests();
+
+    const serverCtx = fakeContext(null);
+    (serverCtx.tokenCache.deserialize as ReturnType<typeof vi.fn>).mockClear();
+    await cachePlugin.beforeCacheAccess(serverCtx);
+    expect(serverCtx.tokenCache.deserialize).toHaveBeenCalledTimes(1);
+    expect(serverCtx.tokenCache.deserialize).toHaveBeenCalledWith(serialized);
+  });
+
+  it("seeds from env at module load (TEAMS_MCP_MSAL_CACHE → beforeCacheAccess works on first call)", async () => {
+    // Simulate the very first beforeCacheAccess after a cold start: the
+    // plugin has just been imported with TEAMS_MCP_MSAL_CACHE already set
+    // by the SessionHub settings_env wrapper.
+    process.env.TEAMS_MCP_MSAL_CACHE = '{"seed":"cold-start"}';
+    __resetCacheForTests();
+    __seedFromEnvForTests();
+
+    const ctx = fakeContext(null);
+    await cachePlugin.beforeCacheAccess(ctx);
+    expect(ctx.tokenCache.deserialize).toHaveBeenCalledWith('{"seed":"cold-start"}');
+  });
+
+  it("is a no-op when TEAMS_MCP_MSAL_CACHE is unset", async () => {
+    // Fresh process, no settings, no env var — operator hasn't
+    // authenticated yet. beforeCacheAccess must NOT call deserialize.
+    delete process.env.TEAMS_MCP_MSAL_CACHE;
+    __resetCacheForTests();
+    __seedFromEnvForTests();
+
+    const ctx = fakeContext(null);
+    await cachePlugin.beforeCacheAccess(ctx);
+    expect(ctx.tokenCache.deserialize).not.toHaveBeenCalled();
   });
 });

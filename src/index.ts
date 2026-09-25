@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 
 import { promises as fs } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   type AuthenticationResult,
   type Configuration,
   PublicClientApplication,
 } from "@azure/msal-node";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { cachePlugin } from "./msal-cache.js";
+import { cachePlugin, exportCache } from "./msal-cache.js";
 import { AUTH_INFO_PATH, createMcpServer } from "./server.js";
 import { resolveScopes } from "./services/graph.js";
 import { writeSecretFile } from "./utils/file-mode.js";
@@ -19,13 +21,13 @@ import { writeSecretFile } from "./utils/file-mode.js";
 const CLIENT_ID = process.env.TEAMS_MCP_CLIENT_ID;
 if (!CLIENT_ID) {
   throw new Error(
-    "TEAMS_MCP_CLIENT_ID is required. Register your own app in Microsoft Entra and set the client ID before starting the server."
+    "TEAMS_MCP_CLIENT_ID is required. Register your own app in Microsoft Entra and set the client ID before starting the server.",
   );
 }
 const TENANT_ID = process.env.TEAMS_MCP_TENANT_ID;
 if (!TENANT_ID) {
   throw new Error(
-    "TEAMS_MCP_TENANT_ID is required. Set the Microsoft Entra tenant ID (GUID or verified domain) you registered the app in."
+    "TEAMS_MCP_TENANT_ID is required. Set the Microsoft Entra tenant ID (GUID or verified domain) you registered the app in.",
   );
 }
 const AUTHORITY = `https://login.microsoftonline.com/${TENANT_ID}`;
@@ -33,6 +35,20 @@ const AUTHORITY = `https://login.microsoftonline.com/${TENANT_ID}`;
 /** Check whether CLI args contain --read-only. */
 function hasReadOnlyFlag(args: string[]): boolean {
   return args.includes("--read-only");
+}
+
+/** Resolve a private runtime directory for the cache handoff file.
+ *  Prefers XDG_RUNTIME_DIR (Linux), then macOS TMPDIR (per-user), then
+ *  /tmp. The returned directory is process-scoped, never the user's
+ *  home dir. */
+function runtimeDir(): string {
+  return process.env.XDG_RUNTIME_DIR ?? tmpdir();
+}
+
+/** Where the auth CLI drops the serialized MSAL cache so the operator
+ *  can copy it into their encrypted settings store. */
+function msalCacheHandoffPath(): string {
+  return join(runtimeDir(), "teams-mcp", "msal-cache.json");
 }
 
 // Authentication functions
@@ -49,7 +65,7 @@ async function authenticate(readOnly: boolean) {
 
     const msalConfig: Configuration = {
       auth: {
-        // The module-level guards throw when TEAMS_MCP_CLIENT_ID or
+// The module-level guards throw when TEAMS_MCP_CLIENT_ID or
         // TEAMS_MCP_TENANT_ID is missing, but TypeScript doesn't carry
         // that narrowing across the function boundary, so narrow
         // explicitly at the use site.
@@ -91,10 +107,27 @@ async function authenticate(readOnly: boolean) {
 
       await writeSecretFile(AUTH_INFO_PATH, JSON.stringify(authInfo, null, 2));
 
+      // Customization #6 (fix): drop the serialized MSAL cache to a
+      // private, runtime-scoped path so the operator can lift it into
+      // their encrypted settings store (SessionHub Settings or
+      // equivalent). The next server launch will receive it via
+      // TEAMS_MCP_MSAL_CACHE (see msal-cache.ts).
+      const serialized = exportCache();
+      const handoffPath = msalCacheHandoffPath();
+      if (serialized) {
+        await fs.mkdir(join(runtimeDir(), "teams-mcp"), { recursive: true });
+        await writeSecretFile(handoffPath, serialized);
+      }
+
       console.log("\n✅ Authentication successful!");
       console.log(`👤 Signed in as: ${result.account?.username || "Unknown"}`);
       console.log(`🔒 Mode: ${modeLabel}`);
       console.log(`💾 Credentials saved to: ${AUTH_INFO_PATH}`);
+      if (serialized) {
+        console.log(`🔐 MSAL cache handoff (mode 0o600): ${handoffPath}`);
+        console.log("   Copy the file contents into your encrypted settings as TEAMS_MCP_MSAL_CACHE");
+        console.log("   before launching the server in a fresh process.");
+      }
       console.log("🔄 Refresh token cached for automatic renewal");
       console.log("\n🚀 You can now use the MCP server in Cursor!");
       console.log("   The server will automatically use these credentials.");
@@ -173,7 +206,8 @@ async function logout() {
   }
 
   // Customization #6 removed the plaintext home-dir token cache file;
-  // nothing on disk to delete anymore.
+  // nothing on disk to delete anymore. The runtime-dir handoff file
+  // (if any) is process-scoped and gets cleaned up by the OS.
 
   console.log("✅ Successfully logged out");
   console.log("🔄 Run 'npx @floriscornel/teams-mcp@latest authenticate' to re-authenticate");
@@ -234,9 +268,7 @@ async function main() {
       );
       console.log("");
       console.log("Environment variables:");
-      console.log(
-        "  TEAMS_MCP_READ_ONLY=false  # Start MCP server in full mode (default: read-only)"
-      );
+      console.log("  TEAMS_MCP_READ_ONLY=false  # Start MCP server in full mode (default: read-only)");
       return;
     case undefined:
       // No command = start MCP server
