@@ -82,7 +82,8 @@ describe("MCP Server CLI", () => {
       expect(consoleLog).toHaveBeenCalledWith("Microsoft Graph MCP Server");
       expect(consoleLog).toHaveBeenCalledWith("Usage:");
       expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining("authenticate"));
-      expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining("TEAMS_MCP_READ_ONLY"));
+      expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining("TEAMS_MCP_READ_ONLY=false"));
+      expect(consoleLog).not.toHaveBeenCalledWith(expect.stringContaining("AUTH_TOKEN"));
     });
 
     it("handles the help command and flag variants", async () => {
@@ -192,6 +193,80 @@ describe("MCP Server CLI", () => {
       expect(scopes).not.toContain("Chat.ReadWrite");
       expect(scopes).not.toContain("ChannelMessage.Send");
       expect(scopes).toContain("User.Read");
+    });
+  });
+
+  // Customization #2: read-only is the default. These tests prove the
+  // default-mode switch resolves to read-only when TEAMS_MCP_READ_ONLY is
+  // unset or "true", and to full access only when explicitly set to "false".
+  describe("read-only default (TEAMS_MCP_READ_ONLY)", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("defaults to read-only when TEAMS_MCP_READ_ONLY is unset", async () => {
+      vi.stubEnv("TEAMS_MCP_READ_ONLY", "");
+      msalMocks.acquireTokenByDeviceCode.mockResolvedValue({
+        account: { username: "test@example.com" },
+        scopes: ["User.Read"],
+        expiresOn: new Date(Date.now() + 3_600_000),
+      });
+
+      await importIndex(["authenticate"]);
+
+      const { scopes } = msalMocks.acquireTokenByDeviceCode.mock.calls[0][0];
+      expect(scopes).toContain("User.Read");
+      expect(scopes).not.toContain("Chat.ReadWrite");
+      expect(scopes).not.toContain("ChannelMessage.Send");
+      expect(scopes).not.toContain("Files.ReadWrite.All");
+      expect(consoleLog).toHaveBeenCalledWith(expect.stringContaining("read-only"));
+    });
+
+    it("honors TEAMS_MCP_READ_ONLY=true as read-only", async () => {
+      vi.stubEnv("TEAMS_MCP_READ_ONLY", "true");
+      msalMocks.acquireTokenByDeviceCode.mockResolvedValue({
+        account: { username: "test@example.com" },
+        scopes: ["User.Read"],
+        expiresOn: new Date(Date.now() + 3_600_000),
+      });
+
+      await importIndex(["authenticate"]);
+
+      const { scopes } = msalMocks.acquireTokenByDeviceCode.mock.calls[0][0];
+      expect(scopes).not.toContain("Chat.ReadWrite");
+      expect(scopes).not.toContain("ChannelMessage.Send");
+    });
+
+    it("opts in to full mode only when TEAMS_MCP_READ_ONLY=false is explicit", async () => {
+      vi.stubEnv("TEAMS_MCP_READ_ONLY", "false");
+      msalMocks.acquireTokenByDeviceCode.mockResolvedValue({
+        account: { username: "test@example.com" },
+        scopes: ["User.Read", "Chat.ReadWrite"],
+        expiresOn: new Date(Date.now() + 3_600_000),
+      });
+
+      await importIndex(["authenticate"]);
+
+      const { scopes } = msalMocks.acquireTokenByDeviceCode.mock.calls[0][0];
+      expect(scopes).toContain("Chat.ReadWrite");
+      expect(scopes).toContain("ChannelMessage.Send");
+      expect(scopes).toContain("Files.ReadWrite.All");
+    });
+
+    it("treats any TEAMS_MCP_READ_ONLY value other than 'false' as read-only", async () => {
+      // Bare "1", "yes", "on", or any other non-"false" string must keep
+      // the safe default; only the literal "false" opt-in disables it.
+      vi.stubEnv("TEAMS_MCP_READ_ONLY", "yes");
+      msalMocks.acquireTokenByDeviceCode.mockResolvedValue({
+        account: { username: "test@example.com" },
+        scopes: ["User.Read"],
+        expiresOn: new Date(Date.now() + 3_600_000),
+      });
+
+      await importIndex(["authenticate"]);
+
+      const { scopes } = msalMocks.acquireTokenByDeviceCode.mock.calls[0][0];
+      expect(scopes).not.toContain("Chat.ReadWrite");
     });
   });
 });

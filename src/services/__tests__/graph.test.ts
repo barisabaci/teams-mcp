@@ -229,7 +229,8 @@ describe("GraphService", () => {
         expect.objectContaining({
           auth: expect.objectContaining({
             clientId: "14d82eec-204b-4c2f-b7e8-296a70dab67e",
-            authority: "https://login.microsoftonline.com/common",
+            authority:
+              "https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000",
           }),
           cache: expect.objectContaining({
             cachePlugin: expect.any(Object),
@@ -300,95 +301,6 @@ describe("GraphService", () => {
       for (const result of results) {
         expect(result.isAuthenticated).toBe(true);
       }
-    });
-  });
-
-  describe("AUTH_TOKEN environment variable", () => {
-    const originalEnv = process.env.AUTH_TOKEN;
-
-    afterEach(() => {
-      if (originalEnv === undefined) {
-        delete process.env.AUTH_TOKEN;
-      } else {
-        process.env.AUTH_TOKEN = originalEnv;
-      }
-    });
-
-    it("should use AUTH_TOKEN from environment when provided", async () => {
-      const mockPayload = btoa(JSON.stringify({ aud: "https://graph.microsoft.com" }));
-      const validToken = `header.${mockPayload}.signature`;
-      process.env.AUTH_TOKEN = validToken;
-
-      const mockClient = {
-        api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockUser),
-        }),
-      };
-
-      vi.mocked(Client.initWithMiddleware).mockReturnValue(mockClient as any);
-
-      const status = await graphService.getAuthStatus();
-
-      expect(status.isAuthenticated).toBe(true);
-      // MSAL should NOT be used when AUTH_TOKEN is set
-      expect(PublicClientApplication).not.toHaveBeenCalled();
-    });
-
-    it("should reject invalid JWT format from AUTH_TOKEN", async () => {
-      process.env.AUTH_TOKEN = "invalid-token";
-
-      const status = await graphService.getAuthStatus();
-
-      expect(status.isAuthenticated).toBe(false);
-    });
-
-    it("should reject JWT without Graph audience from AUTH_TOKEN", async () => {
-      const mockPayload = btoa(JSON.stringify({ aud: "https://other-service.com" }));
-      const invalidToken = `header.${mockPayload}.signature`;
-      process.env.AUTH_TOKEN = invalidToken;
-
-      const status = await graphService.getAuthStatus();
-
-      expect(status.isAuthenticated).toBe(false);
-    });
-
-    it("should handle JWT with audience as array from AUTH_TOKEN", async () => {
-      const mockPayload = btoa(
-        JSON.stringify({ aud: ["https://graph.microsoft.com", "https://other.com"] })
-      );
-      const validToken = `header.${mockPayload}.signature`;
-      process.env.AUTH_TOKEN = validToken;
-
-      const mockClient = {
-        api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockUser),
-        }),
-      };
-
-      vi.mocked(Client.initWithMiddleware).mockReturnValue(mockClient as any);
-
-      const status = await graphService.getAuthStatus();
-
-      expect(status.isAuthenticated).toBe(true);
-    });
-
-    it("should prefer AUTH_TOKEN over MSAL-based auth", async () => {
-      const mockPayload = btoa(JSON.stringify({ aud: "https://graph.microsoft.com" }));
-      const validToken = `header.${mockPayload}.signature`;
-      process.env.AUTH_TOKEN = validToken;
-
-      const mockClient = {
-        api: vi.fn().mockReturnValue({
-          get: vi.fn().mockResolvedValue(mockUser),
-        }),
-      };
-
-      vi.mocked(Client.initWithMiddleware).mockReturnValue(mockClient as any);
-
-      await graphService.getAuthStatus();
-
-      // MSAL should not be used when AUTH_TOKEN is present
-      expect(PublicClientApplication).not.toHaveBeenCalled();
     });
   });
 

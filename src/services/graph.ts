@@ -2,16 +2,25 @@ import { type AccountInfo, PublicClientApplication } from "@azure/msal-node";
 import { Client } from "@microsoft/microsoft-graph-client";
 import { cachePlugin } from "../msal-cache.js";
 
-// Microsoft Graph tenant app registration. TEAMS_MCP_CLIENT_ID is required —
-// the previous hardcoded fallback to Microsoft Graph CLI's public client is
-// removed in this fork (customization #4). See FORK_NOTES.md for rationale.
+// Microsoft Graph tenant app registration. Both TEAMS_MCP_CLIENT_ID and
+// TEAMS_MCP_TENANT_ID are required. The previous hardcoded fallback to
+// Microsoft Graph CLI's public client is removed in this fork
+// (customization #4); the `|| "common"` tenant fallback is removed in
+// customization #5 so the operator must pin the tenant they registered
+// the app in. See FORK_NOTES.md for rationale.
 const CLIENT_ID = process.env.TEAMS_MCP_CLIENT_ID;
 if (!CLIENT_ID) {
   throw new Error(
     "TEAMS_MCP_CLIENT_ID is required. Register your own app in Microsoft Entra and set the client ID before starting the server.",
   );
 }
-const AUTHORITY = `https://login.microsoftonline.com/${process.env.TEAMS_MCP_TENANT_ID || "common"}`;
+const TENANT_ID = process.env.TEAMS_MCP_TENANT_ID;
+if (!TENANT_ID) {
+  throw new Error(
+    "TEAMS_MCP_TENANT_ID is required. Set the Microsoft Entra tenant ID (GUID or verified domain) you registered the app in.",
+  );
+}
+const AUTHORITY = `https://login.microsoftonline.com/${TENANT_ID}`;
 
 /** Scopes sufficient for read-only operations (no message sending, no file uploads). */
 export const READ_ONLY_SCOPES = [
@@ -89,27 +98,17 @@ export class GraphService {
     if (this.isInitialized) return;
 
     try {
-      // Priority 1: AUTH_TOKEN environment variable (direct token injection)
-      const envToken = process.env.AUTH_TOKEN;
-      if (envToken) {
-        const validatedToken = this.validateToken(envToken);
-        if (validatedToken) {
-          this.client = Client.initWithMiddleware({
-            authProvider: {
-              getAccessToken: async () => validatedToken,
-            },
-          });
-          this.isInitialized = true;
-        }
-        return;
-      }
-
-      // Priority 2: MSAL with cached refresh token for automatic token renewal
+      // AUTH_TOKEN direct-injection bypass was removed (customization #3).
+      // The Graph client now only initializes through MSAL with a cached
+      // refresh token, eliminating the silent backdoor where a pre-existing
+      // access token could grant full Graph access without going through the
+      // configured app registration.
       this.msalApp = new PublicClientApplication({
         auth: {
-          // The module-level guard throws when TEAMS_MCP_CLIENT_ID is missing,
-          // but TypeScript doesn't carry that narrowing across the function
-          // boundary, so narrow explicitly at the use site.
+// The module-level guards throw when TEAMS_MCP_CLIENT_ID or
+          // TEAMS_MCP_TENANT_ID is missing, but TypeScript doesn't carry
+          // that narrowing across the function boundary, so narrow
+          // explicitly at the use site.
           clientId:
             typeof CLIENT_ID === "string"
               ? CLIENT_ID
@@ -209,27 +208,5 @@ export class GraphService {
 
   isAuthenticated(): boolean {
     return !!this.client && this.isInitialized;
-  }
-
-  validateToken(token: string): string | undefined {
-    const tokenSplits = token.split(".");
-    if (tokenSplits.length !== 3) {
-      console.error("Invalid JWT token: missing claims");
-      return undefined;
-    }
-
-    try {
-      const payload = JSON.parse(atob(tokenSplits[1]));
-      const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-      if (!audiences.includes("https://graph.microsoft.com")) {
-        console.error("Invalid JWT token: Not a valid Microsoft Graph token");
-        return undefined;
-      }
-    } catch (error) {
-      console.error("Invalid JWT token: Failed to parse payload", error);
-      return undefined;
-    }
-
-    return token;
   }
 }
