@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { promises as fs } from "node:fs";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type AuthenticationResult,
@@ -9,9 +9,10 @@ import {
   PublicClientApplication,
 } from "@azure/msal-node";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { cachePlugin } from "./msal-cache.js";
+import { cachePlugin, exportCache } from "./msal-cache.js";
 import { AUTH_INFO_PATH, createMcpServer } from "./server.js";
 import { resolveScopes } from "./services/graph.js";
+import { writeSecretFile } from "./utils/file-mode.js";
 
 // Microsoft Graph tenant app registration. Both env vars are required —
 // we no longer fall back to a hardcoded public client app (customization
@@ -34,6 +35,20 @@ const AUTHORITY = `https://login.microsoftonline.com/${TENANT_ID}`;
 /** Check whether CLI args contain --read-only. */
 function hasReadOnlyFlag(args: string[]): boolean {
   return args.includes("--read-only");
+}
+
+/** Resolve a private runtime directory for the cache handoff file.
+ *  Prefers XDG_RUNTIME_DIR (Linux), then macOS TMPDIR (per-user), then
+ *  /tmp. The returned directory is process-scoped, never the user's
+ *  home dir. */
+function runtimeDir(): string {
+  return process.env.XDG_RUNTIME_DIR ?? tmpdir();
+}
+
+/** Where the auth CLI drops the serialized MSAL cache so the operator
+ *  can copy it into their encrypted settings store. */
+function msalCacheHandoffPath(): string {
+  return join(runtimeDir(), "teams-mcp", "msal-cache.json");
 }
 
 // Authentication functions
@@ -90,12 +105,29 @@ async function authenticate(readOnly: boolean) {
         grantedScopes: result.scopes,
       };
 
-      await fs.writeFile(AUTH_INFO_PATH, JSON.stringify(authInfo, null, 2));
+      await writeSecretFile(AUTH_INFO_PATH, JSON.stringify(authInfo, null, 2));
+
+      // Customization #6 (fix): drop the serialized MSAL cache to a
+      // private, runtime-scoped path so the operator can lift it into
+      // their encrypted settings store (SessionHub Settings or
+      // equivalent). The next server launch will receive it via
+      // TEAMS_MCP_MSAL_CACHE (see msal-cache.ts).
+      const serialized = exportCache();
+      const handoffPath = msalCacheHandoffPath();
+      if (serialized) {
+        await fs.mkdir(join(runtimeDir(), "teams-mcp"), { recursive: true });
+        await writeSecretFile(handoffPath, serialized);
+      }
 
       console.log("\n✅ Authentication successful!");
       console.log(`👤 Signed in as: ${result.account?.username || "Unknown"}`);
       console.log(`🔒 Mode: ${modeLabel}`);
       console.log(`💾 Credentials saved to: ${AUTH_INFO_PATH}`);
+      if (serialized) {
+        console.log(`🔐 MSAL cache handoff (mode 0o600): ${handoffPath}`);
+        console.log("   Copy the file contents into your encrypted settings as TEAMS_MCP_MSAL_CACHE");
+        console.log("   before launching the server in a fresh process.");
+      }
       console.log("🔄 Refresh token cached for automatic renewal");
       console.log("\n🚀 You can now use the MCP server in Cursor!");
       console.log("   The server will automatically use these credentials.");
@@ -167,19 +199,15 @@ async function checkAuth() {
 }
 
 async function logout() {
-  const CACHE_PATH = join(homedir(), ".teams-mcp-token-cache.json");
-
   try {
     await fs.unlink(AUTH_INFO_PATH);
   } catch (_error) {
     // Ignore if file doesn't exist
   }
 
-  try {
-    await fs.unlink(CACHE_PATH);
-  } catch (_error) {
-    // Ignore if file doesn't exist
-  }
+  // Customization #6 removed the plaintext home-dir token cache file;
+  // nothing on disk to delete anymore. The runtime-dir handoff file
+  // (if any) is process-scoped and gets cleaned up by the OS.
 
   console.log("✅ Successfully logged out");
   console.log("🔄 Run 'npx @floriscornel/teams-mcp@latest authenticate' to re-authenticate");

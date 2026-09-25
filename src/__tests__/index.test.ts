@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // without touching the developer's actual credentials.
 const TMP_HOME = join(tmpdir(), "teams-mcp-index-test-home");
 const AUTH_INFO_PATH = join(TMP_HOME, ".msgraph-mcp-auth.json");
-const TOKEN_CACHE_PATH = join(TMP_HOME, ".teams-mcp-token-cache.json");
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
@@ -143,12 +142,10 @@ describe("MCP Server CLI", () => {
   describe("logout", () => {
     it("removes the stored credentials", async () => {
       await fs.writeFile(AUTH_INFO_PATH, authInfoFixture());
-      await fs.writeFile(TOKEN_CACHE_PATH, "{}");
 
       await importIndex(["logout"]);
 
       await expect(fs.access(AUTH_INFO_PATH)).rejects.toThrow();
-      await expect(fs.access(TOKEN_CACHE_PATH)).rejects.toThrow();
       expect(consoleLog).toHaveBeenCalledWith("✅ Successfully logged out");
     });
 
@@ -267,6 +264,25 @@ describe("MCP Server CLI", () => {
 
       const { scopes } = msalMocks.acquireTokenByDeviceCode.mock.calls[0][0];
       expect(scopes).not.toContain("Chat.ReadWrite");
+    });
+  });
+
+  // Customization #7: AUTH_INFO_PATH must be persisted at mode 0o600,
+  // so the auth metadata cannot leak via group/world-readable bits.
+  // The defensive chmod is unit-tested in src/utils/__tests__/file-mode.test.ts;
+  // here we only assert the end-to-end mode on the file the CLI writes.
+  describe("auth info file mode (customization #7)", () => {
+    it("writes AUTH_INFO_PATH with mode 0o600", async () => {
+      msalMocks.acquireTokenByDeviceCode.mockResolvedValue({
+        account: { username: "test@example.com" },
+        scopes: ["User.Read", "Chat.ReadWrite"],
+        expiresOn: new Date(Date.now() + 3_600_000),
+      });
+
+      await importIndex(["authenticate"]);
+
+      const stat = await fs.stat(AUTH_INFO_PATH);
+      expect(stat.mode & 0o777).toBe(0o600);
     });
   });
 });
