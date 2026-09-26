@@ -30,6 +30,7 @@ import {
 } from "../utils/file-upload.js";
 import { formatMessageContent } from "../utils/html-to-markdown.js";
 import { assertImageHostAllowed } from "../utils/image-host-allowlist.js";
+import { logger } from "../utils/logger.js";
 import { markdownToHtml } from "../utils/markdown.js";
 import { processMentionsInHtml, searchUsers, type UserInfo } from "../utils/users.js";
 
@@ -378,9 +379,10 @@ export function registerTeamsTools(
                   displayName: userResponse.displayName || mention.mention,
                 });
               } catch (_error) {
-                console.warn(
-                  `Could not resolve user ${mention.userId}, using mention text as display name`
-                );
+                logger.warn("Could not resolve user, using mention text as display name", {
+                  module: "teams-mcp-teams",
+                  userId: mention.userId,
+                });
                 mentionMappings.push({
                   mention: mention.mention,
                   userId: mention.userId,
@@ -741,9 +743,10 @@ export function registerTeamsTools(
                   displayName: userResponse.displayName || mention.mention,
                 });
               } catch (_error) {
-                console.warn(
-                  `Could not resolve user ${mention.userId}, using mention text as display name`
-                );
+                logger.warn("Could not resolve user, using mention text as display name", {
+                  module: "teams-mcp-teams",
+                  userId: mention.userId,
+                });
                 mentionMappings.push({
                   mention: mention.mention,
                   userId: mention.userId,
@@ -1168,17 +1171,26 @@ export function registerTeamsTools(
               const path = await import("node:path");
 
               // Debug: log the savePath to stderr
-              console.error(`[DEBUG] savePath received: "${savePath}"`);
+              logger.debug("savePath received", {
+                module: "teams-mcp-teams",
+                savePath,
+              });
 
               // Normalize path: JSON escaping can cause double backslashes (4 chars -> 2 chars)
               // \\\\wsl.localhost\\... -> \\wsl.localhost\...
               const normalizedPath = savePath.replace(/\\\\/g, "\\");
-              console.error(`[DEBUG] normalizedPath after fix: "${normalizedPath}"`);
+              logger.debug("normalizedPath after fix", {
+                module: "teams-mcp-teams",
+                normalizedPath,
+              });
 
               // Check if path starts with \\ (UNC on Windows) or //
               const isUncPath =
                 normalizedPath.startsWith("\\\\") || normalizedPath.startsWith("//");
-              console.error(`[DEBUG] isUncPath: ${isUncPath}`);
+              logger.debug("isUncPath computed", {
+                module: "teams-mcp-teams",
+                isUncPath,
+              });
 
               // Basic path traversal protection
               if (!isUncPath && normalizedPath.includes("..")) {
@@ -1202,7 +1214,10 @@ export function registerTeamsTools(
 
               // For UNC paths, don't use path.resolve as it can mess up the path
               const targetPath = isUncPath ? finalPath : path.resolve(finalPath);
-              console.error(`[DEBUG] targetPath: "${targetPath}"`);
+              logger.debug("targetPath resolved", {
+                module: "teams-mcp-teams",
+                targetPath,
+              });
 
               await fs.writeFile(targetPath, buffer);
               result.savedTo = targetPath;
@@ -1413,9 +1428,10 @@ export function registerTeamsTools(
                   displayName: userResponse.displayName || mention.mention,
                 });
               } catch (_error) {
-                console.warn(
-                  `Could not resolve user ${mention.userId}, using mention text as display name`
-                );
+                logger.warn("Could not resolve user, using mention text as display name", {
+                  module: "teams-mcp-teams",
+                  userId: mention.userId,
+                });
                 mentionMappings.push({
                   mention: mention.mention,
                   userId: mention.userId,

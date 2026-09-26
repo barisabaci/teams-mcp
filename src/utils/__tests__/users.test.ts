@@ -75,15 +75,34 @@ describe("User Utilities", () => {
         get: vi.fn().mockRejectedValue(new Error("Graph API error")),
       });
 
-      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {
-        // Mock implementation - do nothing
-      });
+      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       const result = await searchUsers(mockGraphService, "John", 10);
 
       expect(result).toEqual([]);
-      expect(consoleSpy).toHaveBeenCalledWith("Error searching users:", expect.any(Error));
+      const lines: Array<Record<string, unknown>> = [];
+      for (const call of stderrSpy.mock.calls) {
+        const arg = call[0];
+        const text = typeof arg === "string" ? arg : (arg?.toString?.() ?? "");
+        for (const raw of text.split("\n")) {
+          if (!raw) continue;
+          try {
+            lines.push(JSON.parse(raw));
+          } catch {
+            // ignore non-JSON
+          }
+        }
+      }
+      const matching = lines.find(
+        (l) =>
+          l.level === "error" &&
+          typeof l.message === "string" &&
+          l.message.includes("Error searching users")
+      );
+      expect(matching).toBeDefined();
+      expect(matching?.module).toBe("teams-mcp-users");
+      expect(matching?.query).toBe("John");
 
-      consoleSpy.mockRestore();
+      stderrSpy.mockRestore();
     });
   });
 

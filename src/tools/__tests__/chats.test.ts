@@ -907,9 +907,7 @@ describe("Chat Tools", () => {
         return mockPatchChain;
       });
 
-      const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
-        // suppress console.warn in test
-      });
+      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       const result = await updateChatMessageHandler({
         chatId: "chat123",
@@ -918,11 +916,30 @@ describe("Chat Tools", () => {
         mentions: [{ mention: "@unknown", userId: "bad-id" }],
       });
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Could not resolve user bad-id")
+      const lines: Array<Record<string, unknown>> = [];
+      for (const call of stderrSpy.mock.calls) {
+        const arg = call[0];
+        const text = typeof arg === "string" ? arg : (arg?.toString?.() ?? "");
+        for (const raw of text.split("\n")) {
+          if (!raw) continue;
+          try {
+            lines.push(JSON.parse(raw));
+          } catch {
+            // ignore non-JSON
+          }
+        }
+      }
+      const matching = lines.find(
+        (l) =>
+          l.level === "warn" &&
+          typeof l.message === "string" &&
+          l.message.includes("Could not resolve user") &&
+          l.userId === "bad-id"
       );
+      expect(matching).toBeDefined();
+      expect(matching?.module).toBe("teams-mcp-chats");
       expect(result.content[0].text).toContain("✅ Message updated successfully");
-      consoleWarnSpy.mockRestore();
+      stderrSpy.mockRestore();
     });
 
     it("should handle update errors", async () => {

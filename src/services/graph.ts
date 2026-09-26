@@ -1,6 +1,7 @@
 import { type AccountInfo, PublicClientApplication } from "@azure/msal-node";
 import { Client } from "@microsoft/microsoft-graph-client";
 import { cachePlugin } from "../msal-cache.js";
+import { errorPayload, logger } from "../utils/logger.js";
 import { withGraphRetry } from "./retry.js";
 
 // Microsoft Graph tenant app registration. Both TEAMS_MCP_CLIENT_ID and
@@ -151,7 +152,10 @@ export class GraphService {
 
       this.isInitialized = true;
     } catch (error) {
-      console.error("Failed to initialize Graph client:", error);
+      logger.error("Failed to initialize Graph client", {
+        module: "teams-mcp-graph",
+        error: errorPayload(error),
+      });
     }
   }
 
@@ -191,7 +195,10 @@ export class GraphService {
         expiresAt: this.tokenExpiresAt?.toISOString(),
       };
     } catch (error) {
-      console.error("Error getting user info:", error);
+      logger.error("Error getting user info", {
+        module: "teams-mcp-graph",
+        error: errorPayload(error),
+      });
       return { isAuthenticated: false };
     }
   }

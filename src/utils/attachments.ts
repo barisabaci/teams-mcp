@@ -1,6 +1,7 @@
 import type { ChatMessageAttachment } from "@microsoft/microsoft-graph-types";
 import type { GraphService } from "../services/graph.js";
 import type { AttachmentSummary } from "../types/graph.js";
+import { errorPayload, logger } from "./logger.js";
 
 export interface ImageAttachment {
   id: string;
@@ -58,7 +59,10 @@ export async function uploadImageAsHostedContent(
 
     return { hostedContentId, attachment };
   } catch (error) {
-    console.error("Error uploading image as hosted content:", error);
+    logger.error("Error uploading image as hosted content", {
+      module: "teams-mcp-attachments",
+      error: errorPayload(error),
+    });
     return null;
   }
 }
@@ -125,7 +129,10 @@ export async function imageUrlToBase64(
       contentType,
     };
   } catch (error) {
-    console.error("Error converting image URL to base64:", error);
+    logger.error("Error converting image URL to base64", {
+      module: "teams-mcp-attachments",
+      error: errorPayload(error),
+    });
     return null;
   }
 }

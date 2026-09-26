@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import { basename, extname } from "node:path";
 import type { GraphService } from "../services/graph.js";
+import { errorPayload, logger } from "./logger.js";
 
 /** Simple upload threshold (4 MB) */
 const SIMPLE_UPLOAD_MAX_SIZE = 4 * 1024 * 1024;
@@ -281,10 +282,11 @@ export async function uploadFileToChat(
       }
     } catch (orgErr: unknown) {
       // Fallback: try "users" scope if "organization" is blocked by tenant policy
-      console.error(
-        `[teams-mcp] createLink (organization) failed for item ${uploadResult.id}:`,
-        orgErr instanceof Error ? orgErr.message : orgErr
-      );
+      logger.warn("createLink (organization) failed; trying users scope", {
+        module: "teams-mcp-file-upload",
+        itemId: uploadResult.id,
+        error: errorPayload(orgErr),
+      });
       try {
         const linkResponse = (await client
           .api(`/drives/${driveId}/items/${uploadResult.id}/createLink`)
@@ -294,10 +296,11 @@ export async function uploadFileToChat(
         }
       } catch (usersErr: unknown) {
         // Last resort: use the direct webUrl (may not work for recipients)
-        console.error(
-          `[teams-mcp] createLink (users) also failed for item ${uploadResult.id}:`,
-          usersErr instanceof Error ? usersErr.message : usersErr
-        );
+        logger.warn("createLink (users) also failed", {
+          module: "teams-mcp-file-upload",
+          itemId: uploadResult.id,
+          error: errorPayload(usersErr),
+        });
       }
     }
   }

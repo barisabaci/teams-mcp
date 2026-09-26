@@ -22,6 +22,7 @@ import {
   uploadFileToChat,
 } from "../utils/file-upload.js";
 import { formatMessageContent } from "../utils/html-to-markdown.js";
+import { errorPayload, logger } from "../utils/logger.js";
 import { markdownToHtml } from "../utils/markdown.js";
 import { processMentionsInHtml } from "../utils/users.js";
 
@@ -244,7 +245,11 @@ export function registerChatTools(
 
               nextLink = response["@odata.nextLink"];
             } catch (pageError) {
-              console.error(`Error fetching page ${pageCount}:`, pageError);
+              logger.error(`Error fetching page ${pageCount}`, {
+                module: "teams-mcp-chats",
+                pageCount,
+                error: errorPayload(pageError),
+              });
               break;
             }
           }
@@ -594,9 +599,10 @@ export function registerChatTools(
                 displayName: userResponse.displayName || mention.mention,
               });
             } catch (_error) {
-              console.warn(
-                `Could not resolve user ${mention.userId}, using mention text as display name`
-              );
+              logger.warn("Could not resolve user, using mention text as display name", {
+                module: "teams-mcp-chats",
+                userId: mention.userId,
+              });
               mentionMappings.push({
                 mention: mention.mention,
                 userId: mention.userId,
@@ -887,9 +893,10 @@ export function registerChatTools(
                 displayName: userResponse.displayName || mention.mention,
               });
             } catch (_error) {
-              console.warn(
-                `Could not resolve user ${mention.userId}, using mention text as display name`
-              );
+              logger.warn("Could not resolve user, using mention text as display name", {
+                module: "teams-mcp-chats",
+                userId: mention.userId,
+              });
               mentionMappings.push({
                 mention: mention.mention,
                 userId: mention.userId,
