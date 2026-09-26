@@ -1,91 +1,60 @@
-# PR #1 — Test Evidence (run 2026-09-25)
+# PR #8 — Test Evidence (run 2026-09-26)
 
-Honest measurement of `npm ci && npm test` and `npm run build` on this branch
-vs upstream-pinned `main` (564ef67). Captured by automated kanıt pass requested
-by Vekil #61997 before merge.
+Honest measurement of `npm test` and `npm run build` on
+`job/teams-graph-retry` (1c15b50) vs `origin/main` (142e40f, the merge
+point of PR #7 / customization #10).
 
 ## Environment
 
-- Node: v22.23.1
-- npm: 10.9.8
-- Branch tip: d0d5b4d3b334b839d7abbc3af0131b0593a77ee7
-- Upstream pin: 564ef67a868b6cf2e2b1a8cc7e191de34d847a80
-- Fresh `node_modules` for each run (`rm -rf node_modules && npm ci`)
+- Node: v22.x
+- npm: bundled with Node
+- Branch tip: **1c15b50021d7992ae53e30ffa4b8611deb1e6dcf**
+- Base: **142e40f0eaf5f233e8a78e69b014054f71352345** (origin/main)
+- Upstream pin: 564ef67a868b6cf2e2b1a8cc7e191de34d847a80 (5 commits ahead)
 
-## npm test — branch (d0d5b4d)
+## npm test — branch (1c15b50)
 
-| Metric              | Value |
-| ------------------- | ----- |
-| Test Files          | 17 total — 13 passed, 4 failed-load |
-| Tests (visible)     | 367 — 357 passed, 10 failed |
-| Tests (hidden)      | 46 hidden behind 3 module-load failures (e2e, server, graph) + index.test.ts partial |
+```
+ Test Files  26 passed (26)
+      Tests  497 passed (497)
+   Start at  16:07:54
+   Duration  11.05s
+```
 
-**Failed test files (suite-level load failure, `TEAMS_MCP_CLIENT_ID is required`):**
+Log: `logs/retry-test.log`
 
-- `src/__tests__/e2e.test.ts` — 0 tests run (load fails before `it()`)
-- `src/__tests__/server.test.ts` — 0 tests run (load fails before `it()`)
-- `src/services/__tests__/graph.test.ts` — 0 tests run (load fails before `it()`)
+## npm test — origin/main (142e40f)
 
-**Visible failed tests (all in `src/__tests__/index.test.ts`):**
+Same branch tip and node_modules before this branch's commits:
 
-1. MCP Server CLI > help > prints usage information
-2. MCP Server CLI > help > handles the help command and flag variants
-3. MCP Server CLI > unknown command > exits with an error
-4. MCP Server CLI > check > reports authentication details when credentials exist
-5. MCP Server CLI > check > reports read-only scope mode
-6. MCP Server CLI > check > reports not authenticated when no credentials exist
-7. MCP Server CLI > logout > removes the stored credentials
-8. MCP Server CLI > logout > succeeds even when no credentials exist
-9. MCP Server CLI > authenticate > runs the device code flow and stores credentials
-10. MCP Server CLI > authenticate > passes read-only scopes when --read-only is given
+```
+ Test Files  24 passed (24)
+      Tests  472 passed (472)
+   Duration  1.25s
+```
 
-**Root cause (single failure mode, repeated):** the new
-`TEAMS_MCP_CLIENT_ID` guard in `src/index.ts` and `src/services/graph.ts`
-runs at module-load time. Any test that imports `src/server.ts` /
-`src/index.ts` / `src/services/graph.ts` throws before `vi.mock` /
-`beforeEach` can stub the env var, because the guard executes when the
-module is first imported.
+## Comparison
 
-Log: `logs/teams-mcp-pr1/branch-test.log`
-(also `branch-test-final.log` for the second-run summary).
+|                    | origin/main (142e40f) | branch (1c15b50) |
+| ------------------ | --------------------- | ---------------- |
+| Tests passing      | 472                   | 497              |
+| New tests          | —                     | +25              |
+| New reds           | —                     | **0**            |
 
-## npm test — upstream pin (564ef67)
+## New tests added in this PR
 
-| Metric              | Value |
-| ------------------- | ----- |
-| Test Files          | 17 passed |
-| Tests               | 413 passed, 0 failed |
+- `src/services/__tests__/retry.test.ts` (20 tests): unit tests for the
+  retry helper — retryable status matrix, `Retry-After` parsing,
+  exponential delay growth, jitter bounds, the four required msw
+  scenarios (429 honouring `Retry-After`, 5xx exponential, success
+  no-retry, budget exhausted), warn/info/error telemetry shape, and
+  config override behaviour.
+- `src/services/__tests__/graph-retry.test.ts` (5 tests): integration
+  tests proving `GraphService.request<T>()` retries on 429/503, surfaces
+  the last error after the budget is exhausted, does NOT retry on 401,
+  and respects `TEAMS_MCP_RETRY_MAX_RETRIES` env override.
 
-Log: `logs/teams-mcp-pr1/upstream-test.log`
-
-## Comparison: branch vs upstream
-
-|                    | Upstream (564ef67) | Branch (d0d5b4d) |
-| ------------------ | ------------------ | ----------------- |
-| Tests passing      | 413                | 357               |
-| Tests visible fail | 0                  | 10                |
-| Tests hidden fail  | 0                  | 46                |
-| Net new reds       | —                  | **56**            |
-
-**Bar (d) — "branch'te upstream'ten sıfır yeni red" — NOT MET.**
-
-Every previously-passing test that transitively imports
-`src/server.ts` / `src/index.ts` / `src/services/graph.ts` now breaks
-because the guard fires before test setup runs.
-
-## Test-file diff (TEAMS_MCP_CLIENT_ID guard)
-
-Per `git diff 564ef67..d0d5b4d -- 'src/**/*.test.ts'`:
-
-| Changed test files | Count |
-| ------------------ | ----- |
-| Test files changed | **0** |
-| Production files changed for the guard | 2 (`src/index.ts`, `src/services/graph.ts`) |
-
-No tests were added or updated to cover the new guard behaviour, which
-is the proximate cause of the regression above.
-
-## npm run build (tsc) — branch (d0d5b4d)
+## npm run build (tsc) — branch (1c15b50)
 
 ```
 > @floriscornel/teams-mcp@1.0.1 build
@@ -96,47 +65,28 @@ is the proximate cause of the regression above.
 
 > @floriscornel/teams-mcp@1.0.1 compile
 > tsc
-
-src/index.ts(47,9): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
-src/services/graph.ts(110,11): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
-EXIT=2
+EXIT=0
 ```
 
-**Bar (e) — "npm run build (tsc) yeşil" — NOT MET.** `tsc` exits with
-code 2 (two `TS2322` errors). The guard narrows `CLIENT_ID` to
-`string | undefined` at the use-site, but TypeScript can't see the
-narrowing survive past the `if (!CLIENT_ID) throw` because the `throw`
-is not flagged as `never`-returning in this strict config (likely an
-interaction with `noUncheckedIndexedAccess` / `exactOptionalPropertyTypes`).
-Suggested fix: explicit `const clientId: string = CLIENT_ID;` after the
-guard, or `as string` at the two use-sites — but that's a code change
-for a follow-up, not this PR.
+## npm run lint (biome) — branch (1c15b50)
 
-Log: `logs/teams-mcp-pr1/branch-build.log`
+Pre-existing formatting noise in `src/__tests__/client-id-guard.test.ts`,
+`src/__tests__/tenant-id-guard.test.ts`, `src/index.ts`,
+`src/msal-cache.ts`, and `src/services/__tests__/graph.test.ts` is
+untouched in this PR. No new lint errors in any of the changed files
+(`src/services/retry.ts`, `src/services/__tests__/retry.test.ts`,
+`src/services/__tests__/graph-retry.test.ts`, `src/services/graph.ts`).
 
-## Summary against the requested acceptance criteria
+## Acceptance criteria
 
-| #   | Criterion                                          | Status                |
-| --- | -------------------------------------------------- | --------------------- |
-| (a) | Branch npm test counts + log                       | ✅ captured (above)   |
-| (b) | Upstream npm test counts + log                     | ✅ captured (above)   |
-| (c) | Diff report for TEAMS_MCP_CLIENT_ID guard         | ✅ 0 test files; 2 prod files |
-| (d) | Bar: zero new reds in branch vs upstream          | ❌ **NOT MET** (56 new reds) |
-| (e) | npm run build (tsc) green                          | ❌ **NOT MET** (2 TS2322 errors) |
-| (f) | New commit (no amend) pushed; PR body updated      | ✅ this commit        |
-| (g) | SHA sent to Vekil                                  | ✅ via msg_send       |
-
-## Recommendation
-
-This PR should NOT be merged as-is. Two follow-ups are needed:
-
-1. **Test-setup fix** — set `TEAMS_MCP_CLIENT_ID` in the vitest setup
-   file (`src/test-utils/vitest.setup.ts`) before any module that
-   imports `src/server.ts` / `src/index.ts` / `src/services/graph.ts`
-   is loaded. With a placeholder value (e.g. `00000000-0000-0000-0000-000000000000`)
-   all 56 broken tests should turn green.
-2. **Build fix** — re-run `tsc` after the guard change. Either annotate
-   the narrowing explicitly (`const clientId = CLIENT_ID as string;`)
-   or restructure the guard so TypeScript can see the narrowing.
-
-Both are small. Neither is in scope for this PR — flag as blockers.
+| #   | Criterion                                                     | Status        |
+| --- | ------------------------------------------------------------- | ------------- |
+| (a) | Retry/backoff module implemented (file:line)                 | ✅ `src/services/retry.ts` (230 LOC) |
+| (b) | 429 → Retry-After; 5xx → exponential; budget = 5; env config  | ✅ all four     |
+| (c) | Telemetry: retry attempts, count, result                      | ✅ warn / info / error with `[teams-mcp-retry]` prefix |
+| (d) | msw tests: 429 + 5xx + Retry-After + max budget (≥ 4 tests)  | ✅ 20 unit + 5 integration = 25 (msw-based) |
+| (e) | npm test passed + log path; upstream comparison               | ✅ 497 passed (was 472, +25); logs/retry-test.log |
+| (f) | npm run build exit 0                                          | ✅ tsc exit 0   |
+| (g) | New commit (no amend) pushed to PR                            | ✅ 1c15b50      |
+| (h) | PR #8 opened                                                  | ✅ https://github.com/barisabaci/teams-mcp/pull/8 |
+| (i) | SHA + PR + test result reported to Vekil                      | ✅ via msg_send |
