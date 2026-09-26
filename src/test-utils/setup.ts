@@ -1,288 +1,28 @@
-import { HttpResponse, http } from "msw";
 import { setupServer } from "msw/node";
 import { afterEach, beforeEach, expect, type Mock, vi } from "vitest";
-import type {
-  Channel,
-  Chat,
-  ChatMessage,
-  ConversationMember,
-  GraphApiResponse,
-  Team,
-  User,
-} from "../types/graph.js";
 
-// Mock data fixtures
-export const mockUser: User = {
-  id: "test-user-id",
-  displayName: "Test User",
-  userPrincipalName: "test.user@example.com",
-  mail: "test.user@example.com",
-  jobTitle: "Test Engineer",
-  department: "Engineering",
-  officeLocation: "Remote",
-};
+// Re-export the entire fixtures namespace so existing test files
+// (which import `{ mockUser, mockTeam, ... }` from this module) keep
+// working without per-symbol re-export (vitest has a quirk where named
+// re-exports of named imports can be undefined at the importer side).
+export * from "../__tests__/msw/handlers/fixtures.js";
 
-export const mockTeam: Team = {
-  id: "test-team-id",
-  displayName: "Test Team",
-  description: "A test team for unit tests",
-  isArchived: false,
-};
+import { chatsHandlers } from "../__tests__/msw/handlers/chats.js";
+import { messagesHandlers } from "../__tests__/msw/handlers/messages.js";
+import { searchHandlers } from "../__tests__/msw/handlers/search.js";
+import { teamsHandlers } from "../__tests__/msw/handlers/teams.js";
+import { usersHandlers } from "../__tests__/msw/handlers/users.js";
 
-export const mockChannel: Channel = {
-  id: "test-channel-id",
-  displayName: "General",
-  description: "General discussion channel",
-  membershipType: "standard",
-};
-
-export const mockChat: Chat = {
-  id: "test-chat-id",
-  topic: "Test Chat",
-  chatType: "group",
-};
-
-export const mockChatMessage: ChatMessage = {
-  id: "test-message-id",
-  createdDateTime: "2024-01-01T12:00:00Z",
-  body: {
-    content: "Test message content",
-    contentType: "text",
-  },
-  from: {
-    user: {
-      id: "test-user-id",
-      displayName: "Test User",
-    },
-  },
-  importance: "normal",
-};
-
-export const mockConversationMember: ConversationMember = {
-  id: "test-member-id",
-  displayName: "Test Member",
-  roles: ["owner"],
-};
-
-// Microsoft Graph API mock handlers
 export const graphApiHandlers = [
-  // User endpoints
-  http.get("https://graph.microsoft.com/v1.0/me", () => {
-    return HttpResponse.json(mockUser);
-  }),
-
-  http.get("https://graph.microsoft.com/v1.0/users", ({ request }) => {
-    const url = new URL(request.url);
-    const filter = url.searchParams.get("$filter");
-
-    // Simulate search functionality
-    const response: GraphApiResponse<User> = {
-      value: filter?.includes("test") ? [mockUser] : [],
-    };
-    return HttpResponse.json(response);
-  }),
-
-  http.get("https://graph.microsoft.com/v1.0/users/:userId", ({ params }) => {
-    if (params.userId === "test-user-id" || params.userId === "test.user@example.com") {
-      return HttpResponse.json(mockUser);
-    }
-    return new HttpResponse(null, { status: 404 });
-  }),
-
-  // Teams endpoints
-  http.get("https://graph.microsoft.com/v1.0/me/joinedTeams", () => {
-    const response: GraphApiResponse<Team> = {
-      value: [mockTeam],
-    };
-    return HttpResponse.json(response);
-  }),
-
-  http.get("https://graph.microsoft.com/v1.0/teams/:teamId/channels", ({ params }) => {
-    if (params.teamId === "test-team-id") {
-      const response: GraphApiResponse<Channel> = {
-        value: [mockChannel],
-      };
-      return HttpResponse.json(response);
-    }
-    return new HttpResponse(null, { status: 404 });
-  }),
-
-  http.get("https://graph.microsoft.com/v1.0/teams/:teamId/members", ({ params }) => {
-    if (params.teamId === "test-team-id") {
-      const response: GraphApiResponse<ConversationMember> = {
-        value: [mockConversationMember],
-      };
-      return HttpResponse.json(response);
-    }
-    return new HttpResponse(null, { status: 404 });
-  }),
-
-  // Channel messages
-  http.get(
-    "https://graph.microsoft.com/v1.0/teams/:teamId/channels/:channelId/messages",
-    ({ params }) => {
-      if (params.teamId === "test-team-id" && params.channelId === "test-channel-id") {
-        const response: GraphApiResponse<ChatMessage> = {
-          value: [mockChatMessage],
-        };
-        return HttpResponse.json(response);
-      }
-      return new HttpResponse(null, { status: 404 });
-    }
-  ),
-
-  http.post(
-    "https://graph.microsoft.com/v1.0/teams/:teamId/channels/:channelId/messages",
-    async ({ params, request }) => {
-      if (params.teamId === "test-team-id" && params.channelId === "test-channel-id") {
-        const body = (await request.json()) as any;
-        const response = {
-          ...mockChatMessage,
-          id: "new-message-id",
-          body: body.body,
-          createdDateTime: new Date().toISOString(),
-        };
-        return HttpResponse.json(response);
-      }
-      return new HttpResponse(null, { status: 404 });
-    }
-  ),
-
-  // Chats endpoints
-  http.get("https://graph.microsoft.com/v1.0/me/chats", () => {
-    const response: GraphApiResponse<Chat> = {
-      value: [mockChat],
-    };
-    return HttpResponse.json(response);
-  }),
-
-  http.get("https://graph.microsoft.com/v1.0/me/chats/:chatId/messages", ({ params, request }) => {
-    if (params.chatId === "test-chat-id") {
-      const url = new URL(request.url);
-      const fromUser = url.searchParams.get("$filter")?.includes("from/user/id");
-
-      const response: GraphApiResponse<ChatMessage> = {
-        value: fromUser ? [] : [mockChatMessage],
-      };
-      return HttpResponse.json(response);
-    }
-    return new HttpResponse(null, { status: 404 });
-  }),
-
-  http.post(
-    "https://graph.microsoft.com/v1.0/me/chats/:chatId/messages",
-    async ({ params, request }) => {
-      if (params.chatId === "test-chat-id") {
-        const body = (await request.json()) as any;
-        const response = {
-          ...mockChatMessage,
-          id: "new-chat-message-id",
-          body: body.body,
-          createdDateTime: new Date().toISOString(),
-        };
-        return HttpResponse.json(response);
-      }
-      return new HttpResponse(null, { status: 404 });
-    }
-  ),
-
-  http.post("https://graph.microsoft.com/v1.0/chats", async ({ request }) => {
-    const body = (await request.json()) as any;
-    const response = {
-      ...mockChat,
-      id: "new-chat-id",
-      topic: body.topic,
-      chatType: body.chatType,
-    };
-    return HttpResponse.json(response);
-  }),
-
-  // Search endpoints
-  http.post("https://graph.microsoft.com/v1.0/search/query", async ({ request }) => {
-    const body = (await request.json()) as any;
-    const searchRequest = body.requests[0];
-
-    const response = {
-      value: [
-        {
-          searchTerms: [searchRequest.query.queryString],
-          hitsContainers: [
-            {
-              hits: [
-                {
-                  hitId: "search-hit-1",
-                  rank: 1,
-                  summary: "Test message found in search",
-                  resource: {
-                    "@odata.type": "#microsoft.graph.chatMessage",
-                    id: "search-message-id",
-                    createdDateTime: "2024-01-01T12:00:00Z",
-                    from: {
-                      user: {
-                        displayName: "Test User",
-                        id: "test-user-id",
-                      },
-                    },
-                    body: {
-                      content: "Test search result message",
-                      contentType: "text",
-                    },
-                    chatId: "test-chat-id",
-                  },
-                },
-              ],
-              total: 1,
-              moreResultsAvailable: false,
-            },
-          ],
-        },
-      ],
-    };
-    return HttpResponse.json(response);
-  }),
-
-  // Error scenarios for testing
-  http.get("https://graph.microsoft.com/v1.0/error/401", () => {
-    return HttpResponse.json(
-      {
-        error: {
-          code: "InvalidAuthenticationToken",
-          message: "Access token is empty.",
-        },
-      },
-      { status: 401 }
-    );
-  }),
-
-  http.get("https://graph.microsoft.com/v1.0/error/403", () => {
-    return HttpResponse.json(
-      {
-        error: {
-          code: "Forbidden",
-          message: "Insufficient privileges to complete the operation.",
-        },
-      },
-      { status: 403 }
-    );
-  }),
-
-  http.get("https://graph.microsoft.com/v1.0/error/429", () => {
-    return HttpResponse.json(
-      {
-        error: {
-          code: "TooManyRequests",
-          message: "Too many requests",
-        },
-      },
-      { status: 429, headers: { "Retry-After": "30" } }
-    );
-  }),
+  ...usersHandlers,
+  ...teamsHandlers,
+  ...chatsHandlers,
+  ...messagesHandlers,
+  ...searchHandlers,
 ];
 
-// Setup MSW server
 export const server = setupServer(...graphApiHandlers);
 
-// Mock file system operations for token storage (must be at top level for vitest hoisting)
 vi.mock("node:fs", async () => {
   const actual = (await vi.importActual("node:fs")) as any;
   return {
@@ -297,23 +37,18 @@ vi.mock("node:fs", async () => {
   };
 });
 
-// Mock Azure identity
 vi.mock("@azure/identity", () => ({
   DeviceCodeCredential: vi.fn(),
 }));
 
-// Global test setup
 beforeEach(() => {
-  // Reset all mocks before each test
   vi.clearAllMocks();
 });
 
 afterEach(() => {
-  // Clean up after each test
   vi.resetAllMocks();
 });
 
-// Helper function to create mock authenticated GraphService
 export function createMockGraphService(): {
   getInstance: Mock;
   getAuthStatus: Mock;
@@ -324,8 +59,8 @@ export function createMockGraphService(): {
     getInstance: vi.fn().mockReturnThis(),
     getAuthStatus: vi.fn().mockResolvedValue({
       isAuthenticated: true,
-      userPrincipalName: mockUser.userPrincipalName,
-      displayName: mockUser.displayName,
+      userPrincipalName: "test.user@example.com",
+      displayName: "Test User",
       expiresAt: new Date(Date.now() + 3600000).toISOString(),
     }),
     getClient: vi.fn().mockResolvedValue({
@@ -339,7 +74,6 @@ export function createMockGraphService(): {
   };
 }
 
-// Helper function to create mock unauthenticated GraphService
 export function createMockUnauthenticatedGraphService(): {
   getInstance: Mock;
   getAuthStatus: Mock;
@@ -356,7 +90,6 @@ export function createMockUnauthenticatedGraphService(): {
   };
 }
 
-// Helper function to create mock MCP server
 export function createMockMcpServer(): {
   tool: Mock;
   registerTool: Mock;
@@ -402,7 +135,6 @@ export function createMockMcpServer(): {
   };
 }
 
-// Helper function to test MCP tool execution
 export async function testMcpTool(
   toolName: string,
   parameters: any,
