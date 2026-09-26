@@ -582,7 +582,7 @@ describe("Teams Tools", () => {
         channelId: "test-channel-id",
         message: "Check this out!",
         format: "text",
-        imageUrl: "https://example.com/image.png",
+        imageUrl: "https://graph.microsoft.com/v1.0/me/photo/$value",
       });
 
       expect(result.content[0].text).toContain("✅ Message sent successfully");
@@ -602,11 +602,34 @@ describe("Teams Tools", () => {
         channelId: "test-channel-id",
         message: "Check this out!",
         format: "text",
-        imageUrl: "https://example.com/missing.png",
+        imageUrl: "https://graph.microsoft.com/v1.0/me/photo/missing.png",
       });
 
       expect(result.content[0].text).toContain("❌ Failed to download image from URL");
       expect(result.isError).toBe(true);
+    });
+
+    it("should reject image URLs whose host is not in the allowlist", async () => {
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy;
+
+      registerTeamsTools(mockServer, mockGraphService, false);
+
+      const tool = mockServer.getTool("send_channel_message");
+      const result = await tool.handler({
+        teamId: "test-team-id",
+        channelId: "test-channel-id",
+        message: "Check this out!",
+        format: "text",
+        imageUrl: "https://evil.example.com/payload.png",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("❌");
+      expect(result.content[0].text).toContain("evil.example.com");
+      expect(result.content[0].text).toContain("TEAMS_MCP_IMAGE_HOST_ALLOWLIST");
+      // Host check must run BEFORE the fetch — otherwise the SSRF is real.
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it("should send message with base64 image data", async () => {
@@ -936,7 +959,7 @@ describe("Teams Tools", () => {
         messageId: "parent-message-id",
         message: "See attached",
         format: "text",
-        imageUrl: "https://example.com/reply-image.jpg",
+        imageUrl: "https://graph.microsoft.com/v1.0/me/photo/reply-image.jpg",
       });
 
       expect(result.content[0].text).toContain("✅ Reply sent successfully");
@@ -957,11 +980,32 @@ describe("Teams Tools", () => {
         messageId: "parent-message-id",
         message: "Failed image",
         format: "text",
-        imageUrl: "https://example.com/broken.jpg",
+        imageUrl: "https://graph.microsoft.com/v1.0/me/photo/broken.jpg",
       });
 
       expect(result.content[0].text).toContain("❌ Failed to download image from URL");
       expect(result.isError).toBe(true);
+    });
+
+    it("should reject image URLs whose host is not in the allowlist (reply)", async () => {
+      const fetchSpy = vi.fn();
+      global.fetch = fetchSpy;
+
+      registerTeamsTools(mockServer, mockGraphService, false);
+
+      const tool = mockServer.getTool("reply_to_channel_message");
+      const result = await tool.handler({
+        teamId: "test-team-id",
+        channelId: "test-channel-id",
+        messageId: "parent-message-id",
+        message: "NOPE",
+        format: "text",
+        imageUrl: "https://attacker.example/payload.png",
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("attacker.example");
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
   });
 

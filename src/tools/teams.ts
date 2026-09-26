@@ -29,6 +29,7 @@ import {
   uploadFileToChannel,
 } from "../utils/file-upload.js";
 import { formatMessageContent } from "../utils/html-to-markdown.js";
+import { assertImageHostAllowed } from "../utils/image-host-allowlist.js";
 import { markdownToHtml } from "../utils/markdown.js";
 import { processMentionsInHtml, searchUsers, type UserInfo } from "../utils/users.js";
 
@@ -410,6 +411,22 @@ export function registerTeamsTools(
             let imageInfo: { data: string; contentType: string } | null = null;
 
             if (imageUrl) {
+              // Deny-by-default host check (customization #9). Runs before
+              // `imageUrlToBase64` so an attacker-controlled host never
+              // triggers a server-side fetch / SSRF / stored-XSS primitive.
+              try {
+                assertImageHostAllowed(imageUrl);
+              } catch (assertionError) {
+                return {
+                  content: [
+                    {
+                      type: "text" as const,
+                      text: `❌ ${(assertionError as Error).message}`,
+                    },
+                  ],
+                  isError: true,
+                };
+              }
               imageInfo = await imageUrlToBase64(imageUrl);
               if (!imageInfo) {
                 return {
@@ -757,6 +774,22 @@ export function registerTeamsTools(
             let imageInfo: { data: string; contentType: string } | null = null;
 
             if (imageUrl) {
+              // Deny-by-default host check (customization #9). Runs before
+              // `imageUrlToBase64` so an attacker-controlled host never
+              // triggers a server-side fetch / SSRF / stored-XSS primitive.
+              try {
+                assertImageHostAllowed(imageUrl);
+              } catch (assertionError) {
+                return {
+                  content: [
+                    {
+                      type: "text" as const,
+                      text: `❌ ${(assertionError as Error).message}`,
+                    },
+                  ],
+                  isError: true,
+                };
+              }
               imageInfo = await imageUrlToBase64(imageUrl);
               if (!imageInfo) {
                 return {
