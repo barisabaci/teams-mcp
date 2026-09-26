@@ -37,27 +37,36 @@ Cherry-picking specific upstream fixes (security advisories, blocking bugs)
 is fine when a full rebase is too noisy; do that on a dedicated branch and
 fast-forward `main` only after the rebase path proves too painful.
 
+## Documentation
+
+The end-to-end maintainer guide lives at
+[`docs/DEVELOPING.md`](./docs/DEVELOPING.md) (customization #14, PR #10).
+It covers fork workflow, env vars, the test/build evidence standard,
+upstream sync, PR rules, msw mock usage, and structured-logging
+integration. New maintainers should start there before opening a PR.
+
 ## Customizations applied in this fork
 
-14 customizations are planned; this PR (fork setup) implements **#4** and
-**#11**, plus the msw mock foundation and this file.
+14 customizations are planned; all 14 are **done**. This fork-setup
+PR was the foundation; the baraj rules (#1–#13) ship in PRs #4–#9; the
+documentation PR is #10.
 
 | #   | Change                                                                                          | Status        |
 | --- | ----------------------------------------------------------------------------------------------- | ------------- |
-| 1   | Sending default OFF                                                                            | upcoming PR   |
-| 2   | Read-only mode default                                                                          | upcoming PR   |
-| 3   | Remove `AUTH_TOKEN` direct-injection bypass                                                     | upcoming PR   |
-| **4** | **Remove `CLIENT_ID` hardcoded fallback** (this PR)                                           | **done**      |
-| 5   | Remove tenant `common` fallback                                                                 | upcoming PR   |
-| 6   | Secrets via `settings_env` (no plaintext home-dir files)                                        | upcoming PR   |
-| 7   | File mode `0600` for cache/auth metadata                                                        | upcoming PR   |
-| 8   | Drop unused `@azure/identity-cache-persistence` dependency                                      | upcoming PR   |
-| 9   | `imageUrl` host allowlist (SSRF hardening)                                                      | upcoming PR   |
-| 10  | msw mock Graph fixture for tests                                                                | foundation in this PR; handlers in PR-4 |
-| **11** | **Remove `test-results.xml` from git** (this PR)                                              | **done**      |
-| 12  | Retry / backoff for Graph 429/5xx                                                              | upcoming PR   |
-| 13  | Structured logging                                                                              | upcoming PR   |
-| 14  | Development guide (`docs/teams-mcp-dev.md`)                                                     | upcoming PR   |
+| 1   | Sending default OFF                                                                            | **done** (PR #4) |
+| 2   | Read-only mode default                                                                          | **done** (PR #4) |
+| 3   | Remove `AUTH_TOKEN` direct-injection bypass                                                     | **done** (PR #4) |
+| **4** | **Remove `CLIENT_ID` hardcoded fallback** (this PR)                                           | **done** (PR #1) |
+| 5   | Remove tenant `common` fallback                                                                 | **done** (PR #4) |
+| 6   | Secrets via `settings_env` (no plaintext home-dir files)                                        | **done** (PR #5) |
+| 7   | File mode `0600` for cache/auth metadata                                                        | **done** (PR #5) |
+| 8   | Drop unused `@azure/identity-cache-persistence` dependency                                      | **done** (PR #5) |
+| 9   | `imageUrl` host allowlist (SSRF hardening)                                                      | **done** (PR #6) |
+| 10  | msw mock Graph fixture for tests                                                                | **done** (PR #7) |
+| **11** | **Remove `test-results.xml` from git** (this PR)                                              | **done** (PR #1) |
+| 12  | Retry / backoff for Graph 429/5xx                                                              | **done** (PR #8) |
+| 13  | Structured logging                                                                              | **done** (PR #9) |
+| 14  | Development guide (`docs/DEVELOPING.md`)                                                        | **done** (PR #10) |
 
 Full analysis: see the design doc this fork was derived from
 (commit `17d2d7c` in the McpHub repo, `docs/teams-mcp-kod-incelemesi.md`).
