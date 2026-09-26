@@ -529,6 +529,57 @@ This MCP server is designed to work with AI assistants like Claude/Cursor/VS Cod
 - No sensitive data is logged or exposed
 - Follows Microsoft Graph API security best practices
 
+## 🍴 Fork customizations
+
+This repository is a fork of
+[`floriscornel/teams-mcp`](https://github.com/floriscornel/teams-mcp)
+maintained for use inside McpHub. The full rationale is in
+[`FORK_NOTES.md`](./FORK_NOTES.md); the maintainer guide is in
+[`docs/DEVELOPING.md`](./docs/DEVELOPING.md). The 14 customizations below
+are the **baraj rules** that every PR must respect — changing them
+without an upstream security advisory is out of scope.
+
+| #   | Customization                                                | Why                                                                                         |
+| --- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| 1   | Sending default OFF                                          | McpHub only needs read paths in normal operation; write is an opt-in explicit flag.         |
+| 2   | Read-only mode default                                       | Read paths cover 22 tools; default to the safer surface unless the operator flips it.       |
+| 3   | `AUTH_TOKEN` direct-injection bypass removed                 | The bypass let the operator paste a Graph token in plain text; the McpHub secret path is the only supported path. |
+| 4   | Hardcoded `CLIENT_ID` fallback removed                       | Operators must register their own Microsoft Entra app; no more "Microsoft Graph CLI" default. |
+| 5   | Tenant `common` fallback removed                             | The tenant must be pinned to the one where the operator registered the app.                  |
+| 6   | Secrets via `settings_env` (no plaintext home-dir files)     | All credentials flow through SessionHub's encrypted secret store.                           |
+| 7   | File mode `0600` for cache/auth metadata                     | World-readable auth metadata is a leak even when the content is opaque.                      |
+| 8   | `@azure/identity-cache-persistence` dropped                 | Unused dependency; reduces supply-chain surface.                                            |
+| 9   | `imageUrl` host allowlist                                    | Image-attachment SSRF hardening — `src/utils/image-host-allowlist.ts`.                       |
+| 10  | msw mock Graph fixture                                       | Lets unit tests pin Graph responses deterministically; retry tests reuse it.                |
+| 11  | `test-results.xml` not tracked                               | CI artifact, not source.                                                                    |
+| 12  | Graph 429/5xx retry/backoff                                  | Transient rate-limits should not surface to the caller; `src/services/retry.ts`.            |
+| 13  | Structured logging                                           | JSON-line telemetry to stderr with deny-list redaction; `src/utils/logger.ts`.              |
+| 14  | **This guide**                                               | `docs/DEVELOPING.md` — fork workflow, env vars, PR rules, msw usage, logging integration.    |
+
+### Environment variables
+
+| Variable                          | Required | Default | Notes                                                                       |
+| --------------------------------- | -------- | ------- | --------------------------------------------------------------------------- |
+| `TEAMS_MCP_CLIENT_ID`             | yes      | —       | Microsoft Entra public client app ID; module-load guard in `graph.ts`.      |
+| `TEAMS_MCP_TENANT_ID`             | yes      | —       | Microsoft Entra tenant ID; module-load guard in `graph.ts`.                 |
+| `TEAMS_MCP_READ_ONLY`             | no       | `true`  | Restrict tool set to read-only scopes (#1, #2).                             |
+| `TEAMS_MCP_RETRY_MAX_RETRIES`     | no       | `5`     | Total attempts per Graph call (#12).                                        |
+| `TEAMS_MCP_RETRY_BASE_DELAY_MS`   | no       | `500`   | Base for exponential backoff (#12).                                         |
+| `TEAMS_MCP_RETRY_MAX_DELAY_MS`    | no       | `30000` | Cap on any single delay (#12).                                              |
+| `LOG_LEVEL`                       | no       | `info`  | `debug` / `info` / `warn` / `error` (#13).                                  |
+| `LOG_FILE`                        | no       | —       | Optional JSON-line sink appended to disk in addition to stderr (#13).       |
+
+There are no kill-switches inside the fork itself — secrets are supplied
+via SessionHub's `settings_env` (#6) at deploy time.
+
+### Adding a new customization
+
+A new customization = a new branch off `origin/main` + a new commit (no
+amend, no force-push) + a single PR with a `TEST_EVIDENCE_PR<n>.md` at
+the repo root + before/after test counts in the PR body + an updated
+`teams_mcp/SYNC_STATE.md` entry after merge. The step-by-step is in
+[`docs/DEVELOPING.md` §9](./docs/DEVELOPING.md#9-adding-a-new-customization).
+
 ## 📝 License
 
 MIT License - see LICENSE file for details
