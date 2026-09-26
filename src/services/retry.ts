@@ -16,13 +16,15 @@
  *  - Other 4xx (400/401/403/404/...) → no retry; surface the error.
  *  - Total attempts are bounded by `maxRetries` (default 5). Exhausting the
  *    budget throws the last observed error so the caller sees the cause.
- *  - Each retry attempt and the final outcome are logged via `console`
- *    (warn / info / error) so operators can correlate spikes with their
- *    own telemetry stack.
+ *  - Each retry attempt and the final outcome are emitted through the
+ *    structured logger (customization #13) with `module: "teams-mcp-retry"`
+ *    so operators can filter telemetry without parsing free-text prefixes.
  *
  * Env overrides (TEAMS_MCP_RETRY_*) are read once at module load. Tests can
  * pass an explicit `RetryConfig` to `withGraphRetry` to avoid touching env.
  */
+
+import { logger as structuredLogger } from "../utils/logger.js";
 
 export interface RetryConfig {
   /** Max number of attempts per call (1 = no retry). Default 5. */
@@ -142,10 +144,29 @@ export interface RetryLogger {
   error: (...args: unknown[]) => void;
 }
 
+/**
+ * Production telemetry sink — routes warn/info/error through the structured
+ * logger (customization #13). The legacy `[teams-mcp-retry]` free-text
+ * prefix is preserved inside the `message` field for backward-compatible
+ * grep, and the canonical `module: "teams-mcp-retry"` field is added so
+ * structured log shippers can filter without parsing the message body.
+ *
+ * Tests that need to capture emits inject a `RetryLogger` directly via
+ * `withGraphRetry(fn, { logger })` — they bypass this default entirely.
+ */
 const defaultLogger: RetryLogger = {
-  warn: (...args) => console.warn(...args),
-  info: (...args) => console.info(...args),
-  error: (...args) => console.error(...args),
+  warn: (msg) =>
+    structuredLogger.warn(typeof msg === "string" ? msg : String(msg), {
+      module: "teams-mcp-retry",
+    }),
+  info: (msg) =>
+    structuredLogger.info(typeof msg === "string" ? msg : String(msg), {
+      module: "teams-mcp-retry",
+    }),
+  error: (msg) =>
+    structuredLogger.error(typeof msg === "string" ? msg : String(msg), {
+      module: "teams-mcp-retry",
+    }),
 };
 
 export interface WithGraphRetryOptions {

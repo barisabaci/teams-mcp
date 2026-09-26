@@ -1,5 +1,6 @@
 import type { GraphService } from "../services/graph.js";
 import type { User } from "../types/graph.js";
+import { errorPayload, logger } from "./logger.js";
 
 export interface UserInfo {
   id: string;
@@ -33,7 +34,11 @@ export async function searchUsers(
       userPrincipalName: user.userPrincipalName || undefined,
     }));
   } catch (error) {
-    console.error("Error searching users:", error);
+    logger.error("Error searching users", {
+      module: "teams-mcp-users",
+      query,
+      error: errorPayload(error),
+    });
     return [];
   }
 }

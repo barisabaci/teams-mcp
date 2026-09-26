@@ -535,9 +535,7 @@ describe("Teams Tools", () => {
         select: vi.fn().mockReturnThis(),
       });
 
-      const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
-        // Intentionally empty to suppress console output during tests
-      });
+      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       registerTeamsTools(mockServer, mockGraphService, false);
 
@@ -550,12 +548,31 @@ describe("Teams Tools", () => {
         mentions: [{ mention: "@unknown", userId: "unknown-id" }],
       });
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Could not resolve user unknown-id")
+      const lines: Array<Record<string, unknown>> = [];
+      for (const call of stderrSpy.mock.calls) {
+        const arg = call[0];
+        const text = typeof arg === "string" ? arg : (arg?.toString?.() ?? "");
+        for (const raw of text.split("\n")) {
+          if (!raw) continue;
+          try {
+            lines.push(JSON.parse(raw));
+          } catch {
+            // ignore non-JSON
+          }
+        }
+      }
+      const matching = lines.find(
+        (l) =>
+          l.level === "warn" &&
+          typeof l.message === "string" &&
+          l.message.includes("Could not resolve user") &&
+          l.userId === "unknown-id"
       );
+      expect(matching).toBeDefined();
+      expect(matching?.module).toBe("teams-mcp-teams");
       expect(result.content[0].text).toContain("✅ Message sent successfully");
 
-      consoleWarnSpy.mockRestore();
+      stderrSpy.mockRestore();
     });
 
     it("should send message with image from URL", async () => {

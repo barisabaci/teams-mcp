@@ -14,6 +14,27 @@ const mockGraphService = {
   getClient: vi.fn(),
 } as unknown as GraphService;
 
+/**
+ * Parse structured-logger emits written to stderr. Each write call may
+ * carry one or more JSON lines; collect them all and decode every line.
+ */
+function collectLogLines(spy: ReturnType<typeof vi.spyOn>): Array<Record<string, unknown>> {
+  const lines: Array<Record<string, unknown>> = [];
+  for (const call of spy.mock.calls) {
+    const arg = call[0];
+    const text = typeof arg === "string" ? arg : (arg?.toString?.() ?? "");
+    for (const raw of text.split("\n")) {
+      if (!raw) continue;
+      try {
+        lines.push(JSON.parse(raw));
+      } catch {
+        // ignore non-JSON noise
+      }
+    }
+  }
+  return lines;
+}
+
 const mockClient = {
   api: vi.fn(),
 };
@@ -123,9 +144,7 @@ describe("Attachment Utilities", () => {
         post: vi.fn().mockRejectedValue(new Error("Upload failed")),
       });
 
-      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {
-        // Mock implementation - do nothing
-      });
+      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       const result = await uploadImageAsHostedContent(
         mockGraphService,
@@ -136,12 +155,19 @@ describe("Attachment Utilities", () => {
       );
 
       expect(result).toBeNull();
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Error uploading image as hosted content:",
-        expect.any(Error)
+      const logs = collectLogLines(stderrSpy);
+      const matching = logs.find(
+        (l) =>
+          l.level === "error" &&
+          typeof l.message === "string" &&
+          l.message.includes("Error uploading image as hosted content")
       );
+      expect(matching).toBeDefined();
+      expect(matching?.module).toBe("teams-mcp-attachments");
+      const errorInfo = matching?.error as { message: string };
+      expect(errorInfo?.message).toBe("Upload failed");
 
-      consoleSpy.mockRestore();
+      stderrSpy.mockRestore();
     });
   });
 
@@ -268,35 +294,41 @@ describe("Attachment Utilities", () => {
     });
 
     it("should handle fetch errors", async () => {
-      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {
-        // Mock implementation - do nothing
-      });
+      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       const result = await imageUrlToBase64("https://example.com/nonexistent.jpg");
 
       expect(result).toBeNull();
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Error converting image URL to base64:",
-        expect.any(Error)
+      const logs = collectLogLines(stderrSpy);
+      const matching = logs.find(
+        (l) =>
+          l.level === "error" &&
+          typeof l.message === "string" &&
+          l.message.includes("Error converting image URL to base64")
       );
+      expect(matching).toBeDefined();
+      expect(matching?.module).toBe("teams-mcp-attachments");
 
-      consoleSpy.mockRestore();
+      stderrSpy.mockRestore();
     });
 
     it("should reject unsupported content types", async () => {
-      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {
-        // Mock implementation - do nothing
-      });
+      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       const result = await imageUrlToBase64("https://example.com/text.txt");
 
       expect(result).toBeNull();
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Error converting image URL to base64:",
-        expect.any(Error)
+      const logs = collectLogLines(stderrSpy);
+      const matching = logs.find(
+        (l) =>
+          l.level === "error" &&
+          typeof l.message === "string" &&
+          l.message.includes("Error converting image URL to base64")
       );
+      expect(matching).toBeDefined();
+      expect(matching?.module).toBe("teams-mcp-attachments");
 
-      consoleSpy.mockRestore();
+      stderrSpy.mockRestore();
     });
 
     it("should use default content type when header is missing", async () => {
@@ -316,19 +348,22 @@ describe("Attachment Utilities", () => {
         })
       );
 
-      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {
-        // Mock implementation - do nothing
-      });
+      const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       const result = await imageUrlToBase64("https://example.com/network-error.jpg");
 
       expect(result).toBeNull();
-      expect(consoleSpy).toHaveBeenCalledWith(
-        "Error converting image URL to base64:",
-        expect.any(Error)
+      const logs = collectLogLines(stderrSpy);
+      const matching = logs.find(
+        (l) =>
+          l.level === "error" &&
+          typeof l.message === "string" &&
+          l.message.includes("Error converting image URL to base64")
       );
+      expect(matching).toBeDefined();
+      expect(matching?.module).toBe("teams-mcp-attachments");
 
-      consoleSpy.mockRestore();
+      stderrSpy.mockRestore();
     });
   });
 });
