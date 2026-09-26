@@ -1,6 +1,7 @@
 import { type AccountInfo, PublicClientApplication } from "@azure/msal-node";
 import { Client } from "@microsoft/microsoft-graph-client";
 import { cachePlugin } from "../msal-cache.js";
+import { withGraphRetry } from "./retry.js";
 
 // Microsoft Graph tenant app registration. Both TEAMS_MCP_CLIENT_ID and
 // TEAMS_MCP_TENANT_ID are required. The previous hardcoded fallback to
@@ -11,13 +12,13 @@ import { cachePlugin } from "../msal-cache.js";
 const CLIENT_ID = process.env.TEAMS_MCP_CLIENT_ID;
 if (!CLIENT_ID) {
   throw new Error(
-    "TEAMS_MCP_CLIENT_ID is required. Register your own app in Microsoft Entra and set the client ID before starting the server.",
+    "TEAMS_MCP_CLIENT_ID is required. Register your own app in Microsoft Entra and set the client ID before starting the server."
   );
 }
 const TENANT_ID = process.env.TEAMS_MCP_TENANT_ID;
 if (!TENANT_ID) {
   throw new Error(
-    "TEAMS_MCP_TENANT_ID is required. Set the Microsoft Entra tenant ID (GUID or verified domain) you registered the app in.",
+    "TEAMS_MCP_TENANT_ID is required. Set the Microsoft Entra tenant ID (GUID or verified domain) you registered the app in."
   );
 }
 const AUTHORITY = `https://login.microsoftonline.com/${TENANT_ID}`;
@@ -105,7 +106,7 @@ export class GraphService {
       // configured app registration.
       this.msalApp = new PublicClientApplication({
         auth: {
-// The module-level guards throw when TEAMS_MCP_CLIENT_ID or
+          // The module-level guards throw when TEAMS_MCP_CLIENT_ID or
           // TEAMS_MCP_TENANT_ID is missing, but TypeScript doesn't carry
           // that narrowing across the function boundary, so narrow
           // explicitly at the use site.
@@ -208,5 +209,24 @@ export class GraphService {
 
   isAuthenticated(): boolean {
     return !!this.client && this.isInitialized;
+  }
+
+  /**
+   * Execute a Graph request with retry/backoff (customization #12).
+   *
+   * Use this instead of `client.api(path).get()` directly when the call is
+   * a regular Graph read/write that may transiently hit 429 (rate-limit)
+   * or 5xx (server error). The thunk receives the underlying
+   * `microsoft-graph-client` Client so callers can keep using the chainable
+   * query builder (`api(path).filter(...).get()`, etc.).
+   *
+   * The retry helper honours `Retry-After` headers, applies exponential
+   * backoff with jitter for 5xx, caps total attempts at 5 by default, and
+   * emits `[teams-mcp-retry]` telemetry on every attempt and final outcome.
+   * Configuration is overridable via `TEAMS_MCP_RETRY_*` env vars.
+   */
+  async request<T>(buildRequest: (client: Client) => Promise<T>, operation?: string): Promise<T> {
+    const client = await this.getClient();
+    return withGraphRetry(() => buildRequest(client), operation ? { operation } : undefined);
   }
 }
